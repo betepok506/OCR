@@ -1,0 +1,8 @@
+jupyterlab
+scikit-learn
+numpy
+scikit-image
+torchmetrics
+matplotlib
+pandas
+seaborn

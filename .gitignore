@@ -1,0 +1,7 @@
+__pycache__/
+venv/
+data/
+# Pycharm
+.idea
+# Jupyter NB Checkpoints
+.ipynb_checkpoints/
