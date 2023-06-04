@@ -3,9 +3,10 @@ from torch import nn
 import torch
 from torchmetrics import CharErrorRate
 from torch.utils.data import DataLoader
-from src.utils import decode_batch_outputs
+from src.utils import decode_batch_outputs, encoding, split_text
 from sklearn.preprocessing import LabelEncoder
 import numpy as np
+from tqdm import tqdm
 
 
 class CNN_GRU(nn.Module):
@@ -40,17 +41,6 @@ class CNN_GRU(nn.Module):
         x, h = self.lstm(x)
         x = self.linear_2(x)
         x = x.permute(1, 0, 2)
-        # if targets is not None:
-        #     log_probs = nn.functional.log_softmax(x, 2)
-        #
-        #     input_lengths = torch.full(size=(bs,), fill_value=log_probs.size(0),
-        #                                dtype=torch.int32)
-        #
-        #     target_lengths = torch.full(size=(bs,), fill_value=targets.size(1),
-        #                                 dtype=torch.int32)
-        #
-        #     return x, loss
-
         return x
 
 
@@ -59,8 +49,8 @@ class OCR:
     Класс содержит реализация модели для распознования изображений с капчей
     """
 
-    def __init__(self, blank, num_classes):
-        self.model = CNN_GRU(num_classes + 1)
+    def __init__(self, blank_token, blank_ind, ind2token, token2ind, num_classes):
+        self.model = CNN_GRU(num_classes)
         self._device = "cpu"
         self._epoch = 0
         self._eval_loss = float("inf")
@@ -69,10 +59,14 @@ class OCR:
         self._criterion = nn.CTCLoss()
         self._path_save_checkpoint = "./model/checkpoints/"
 
+        self.blank_token = blank_token
+        self.blank_ind = blank_ind
+        self.ind2token = ind2token
+        self.token2ind = token2ind
+
     def train(self,
               train_loader,
               test_loader,
-              encoder,
               num_epochs=500,
               save_checkpoint=True,
               visualize_learning=True,
@@ -102,48 +96,47 @@ class OCR:
         `list`, `list`
             Массив потерь при обучении, массив потерь при валидации
         """
+
         training_loss = []
         evaluations_loss = []
         for epoch in range(num_epochs):
-            train_loss = self._train_epoch(train_loader)
-            eval_loss, outputs = self._validation_epoch(test_loader)
+            train_loss, train_cer, train_examples = self._train_epoch(train_loader)
+            eval_loss, eval_cer, eval_examples = self._validation_epoch(test_loader)
             training_loss.append(training_loss)
             evaluations_loss.append(eval_loss)
             self._epoch += 1
 
             if (epoch + 1) % visualize_each == 0:
-                print(f"Epoch: {self._epoch} Train loss: {train_loss} Validation loss: {eval_loss}")
+                print(
+                    f"Epoch: {self._epoch} Train loss: {train_loss} CER: {train_cer} Examples: {train_examples[:min(len(train_examples), 5)]}"
+                    f"\n\tValidation: loss: {eval_loss} CER: {eval_cer} Examples: {eval_examples[:min(len(eval_examples), 5)]}")
 
-                if visualize_learning:
-                    all_predictions = []
-                    pred_labels = []
-                    for e in outputs:
-                        batch_predictions_labels, batch_predictions = decode_batch_outputs(e, encoder)
-                        all_predictions.extend(batch_predictions)
-                        pred_labels.extend(batch_predictions_labels)
-
-                    test_loader_labels = []
-                    for baths in test_loader:
-                        labels = baths["seq"]
-                        seq_lens = baths["seq_len"]
-                        test_label_in_characters = encoder.inverse_transform(labels)
-                        test_label_original = ''.join(test_label_in_characters)
-                        last_ind = 0
-                        for cur_len in seq_lens.detach().cpu().tolist():
-                            test_loader_labels.append(test_label_original[max(0, last_ind): last_ind + cur_len])
-                            last_ind = last_ind + cur_len
-                        # for e in labels:
-                        #     e = e.type(torch.int).tolist()
-                        #     test_label_in_characters = encoder.inverse_transform(e)
-                        #     test_label_original = ''.join(test_label_in_characters)
-                        #     test_loader_labels.append(test_label_original)
-
-                    index = np.random.choice(len(test_loader_labels), 5, replace=False)
-                    examples = list(zip([test_loader_labels[ind] for ind in index],
-                                        [all_predictions[ind] for ind in index]))
-                    print(examples)
-                    cer = self._evaluations_cer(test_loader_labels, pred_labels).item()
-                    print(f"CER: {cer}")
+                # if visualize_learning:
+                #     all_predictions, pred_labels = [], []
+                #     for e in outputs:
+                #         batch_predictions_labels, batch_predictions = decode_batch_outputs(e, self.ind2token,
+                #                                                                            self.blank_ind,
+                #                                                                            self.blank_token)
+                #         all_predictions.extend(batch_predictions)
+                #         pred_labels.extend(batch_predictions_labels)
+                #
+                #     test_loader_labels = []
+                #     for batch in test_loader:
+                #         labels = batch["seq"]
+                #         seq_lens = batch["seq_len"]
+                #         test_label_in_characters = encoding(labels, self.token2ind)
+                #         test_label_original = ''.join(test_label_in_characters)
+                #         last_ind = 0
+                #         for cur_len in seq_lens.detach().cpu().tolist():
+                #             test_loader_labels.append(test_label_original[max(0, last_ind): last_ind + cur_len])
+                #             last_ind = last_ind + cur_len
+                #
+                #     index = np.random.choice(len(test_loader_labels), 5, replace=False)
+                #     examples = list(zip([test_loader_labels[ind] for ind in index],
+                #                         [all_predictions[ind] for ind in index]))
+                #     print(examples)
+                #     cer = self._evaluations_cer(test_loader_labels, pred_labels).item()
+                #     print(f"CER: {cer}")
 
             if save_checkpoint and self._eval_loss > eval_loss:
                 self._eval_loss = eval_loss
@@ -153,7 +146,7 @@ class OCR:
 
         return training_loss, evaluations_loss
 
-    def _train_epoch(self, train_loader: DataLoader):
+    def _train_epoch(self, train_loader: DataLoader, visualize_learning: bool = True):
         """
         Функция для тренировки модели на наборе данных
 
@@ -168,20 +161,30 @@ class OCR:
             Ошибка при обучении
         """
         self.model.train()
-        final_loss = 0
-        for batchs in train_loader:
+        final_loss, cer = 0, 0
+        result_learning = []
+        for batch in tqdm(train_loader, desc="Training..."):
             self._optimizer.zero_grad()
-            images = batchs["images"].to(self._device)
-            targets = batchs["seq"]
-            seq_lens_gt = batchs["seq_len"]
+            images = batch["images"].to(self._device)
+            targets = batch["seq"]
+            seq_lens_gt = batch["seq_len"]
+            decoded_batch_text = ''.join(encoding(targets.detach().cpu().tolist(), self.ind2token))
+            texts = split_text(decoded_batch_text, seq_lens_gt.detach().cpu().tolist())
 
             output = self.model(images, targets).cpu()
+            batch_predictions_labels, _ = decode_batch_outputs(output, self.ind2token, self.blank_ind,
+                                                               self.blank_token)
+            cer += self._evaluations_cer(texts, batch_predictions_labels).item()
+            if visualize_learning:
+                result_learning.extend(
+                    [(text, predict) for text, predict in zip(texts, batch_predictions_labels)])
+
             log_probs = nn.functional.log_softmax(output, 2)
             seq_lens_pred = torch.Tensor([output.size(0)] * output.size(1)).int()
             loss = self._criterion(log_probs=log_probs,  # (T, N, C)
-                            targets=targets,  # N, S or sum(target_lengths)
-                            input_lengths=seq_lens_pred,  # N
-                            target_lengths=seq_lens_gt)  # N
+                                   targets=targets,  # N, S or sum(target_lengths)
+                                   input_lengths=seq_lens_pred,  # N
+                                   target_lengths=seq_lens_gt)  # N
             # input_lengths = torch.full(size=(output.shape[1],), fill_value=log_probs.size(0),
             #                            dtype=torch.int32)
             #
@@ -196,9 +199,9 @@ class OCR:
             loss.detach()
 
         train_loss = final_loss / len(train_loader)
-        return train_loss
+        return train_loss, cer, result_learning
 
-    def _validation_epoch(self, test_loader):
+    def _validation_epoch(self, test_loader, visualize_learning=True):
         """
         Функция для валидации модели на наборе данных
 
@@ -214,38 +217,38 @@ class OCR:
         """
 
         self.model.eval()
-        final_loss = 0
-        outputs = []
+        final_loss, cer = 0, 0
+        index = np.random.choice(len(test_loader), 1, replace=False)
+        result_learning = []
         with torch.no_grad():
-            for batchs in test_loader:
-                images = batchs["images"].to(self._device)
-                targets = batchs["seq"]
-                seq_lens_gt = batchs["seq_len"]
-                # images = images.to(self._device)
-                # targets = texts.to(self._device)
-                batch_outputs = self.model(images, targets)
-                log_probs = nn.functional.log_softmax(batch_outputs, 2)
+            for batch in tqdm(test_loader, desc="Validating..."):
+                images = batch["images"].to(self._device)
+                targets = batch["seq"]
+                seq_lens_gt = batch["seq_len"]
+                decoded_batch_text = ''.join(encoding(targets.detach().cpu().tolist(), self.ind2token))
+                texts = split_text(decoded_batch_text, seq_lens_gt.detach().cpu().tolist())
 
-                seq_lens_pred = torch.Tensor([batch_outputs.size(0)] * batch_outputs.size(1)).int()
+                outputs = self.model(images, targets)
+
+                batch_predictions_labels, _ = decode_batch_outputs(outputs, self.ind2token, self.blank_ind,
+                                                                   self.blank_token)
+                cer += self._evaluations_cer(texts, batch_predictions_labels).item()
+                if visualize_learning:
+                    result_learning.extend(
+                        [(text, predict) for text, predict in zip(texts, batch_predictions_labels)])
+
+                log_probs = nn.functional.log_softmax(outputs, 2)
+
+                seq_lens_pred = torch.Tensor([outputs.size(0)] * outputs.size(1)).int()
                 loss = self._criterion(log_probs=log_probs,  # (T, N, C)
                                        targets=targets,  # N, S or sum(target_lengths)
                                        input_lengths=seq_lens_pred,  # N
                                        target_lengths=seq_lens_gt)  # N
-
-                # input_lengths = torch.full(size=(batch_outputs.shape[1],), fill_value=log_probs.size(0),
-                #                            dtype=torch.int32)
-                #
-                # target_lengths = torch.full(size=(batch_outputs.shape[1],), fill_value=targets.size(1),
-                #                             dtype=torch.int32)
-                #
-                # loss = self._criterion(log_probs, targets, input_lengths, target_lengths)
                 # loss.requires_grad = True
                 final_loss += loss.item()
 
-                outputs.append(batch_outputs.detach())
-
         eval_loss = final_loss / len(test_loader)
-        return eval_loss, outputs
+        return eval_loss, cer, result_learning
 
     def to(self, device: str = "cpu"):
         """
@@ -261,7 +264,6 @@ class OCR:
 
     def evaluations(self,
                     test_loader: DataLoader,
-                    encoder: LabelEncoder,
                     each_image: bool = False):
         """
         Функция для оценки модели по метрике CharErrorRate
@@ -279,42 +281,75 @@ class OCR:
             Показатель оценки по метрике CharErrorRate
         """
         self.model.eval()
-        outputs = []
+        # outputs = []
         with torch.no_grad():
-            for images, texts in test_loader:
-                images = images.to(self._device)
-                targets = texts.to(self._device)
+            for batch in test_loader:
+                images = batch["images"].to(self._device)
+                targets = batch["seq"]
+                seq_lens_gt = batch["seq_len"]
+                decoded_batch_text = ''.join(encoding(targets.detach().cpu().tolist(), self.ind2token))
+                texts = split_text(decoded_batch_text, seq_lens_gt.detach().cpu().tolist())
+
                 batch_outputs = self.model(images, targets)
-                outputs.append(batch_outputs.detach())
+                batch_predictions_labels, _ = decode_batch_outputs(batch_outputs, self.ind2token, self.blank_ind,
+                                                                   self.blank_token)
+                for text, predict in zip(texts, batch_predictions_labels):
+                    print((text, predict))
+                # map(print, [(text, predict) for text, predict in zip(decoded_text, batch_predictions_labels)])
+                # outputs.append(batch_outputs.detach())
+        # if each_image:
+        #     cer = []
+        #     for ind in range(len(test_loader_labels)):
+        #         img = test_loader_img[ind]
+        #         cer.append({"img": img,
+        #                     "CER": self._evaluations_cer(test_loader_labels[ind],
+        #                                                  pred_labels[ind]).item(),
+        #                     "true_label": test_loader_labels[ind],
+        #                     "pred_label": pred_labels[ind]})
+        # else:
+        #     cer = self._evaluations_cer(test_loader_labels, pred_labels).item()
+        #
+        # return cer
 
-        pred_labels = []
-        for e in outputs:
-            batch_predictions_labels, _ = decode_batch_outputs(e, encoder)
-            pred_labels.extend(batch_predictions_labels)
-
-        test_loader_labels = []
-        test_loader_img = []
-        for images, labels in test_loader:
-            for ind, label in enumerate(labels):
-                label = label.type(torch.int).tolist()
-                test_label_in_characters = encoder.inverse_transform(label)
-                test_label_original = ''.join(test_label_in_characters)
-                test_loader_labels.append(test_label_original)
-                test_loader_img.append(images[ind].squeeze())
-
-        if each_image:
-            cer = []
-            for ind in range(len(test_loader_labels)):
-                img = test_loader_img[ind]
-                cer.append({"img": img,
-                            "CER": self._evaluations_cer(test_loader_labels[ind],
-                                                         pred_labels[ind]).item(),
-                            "true_label": test_loader_labels[ind],
-                            "pred_label": pred_labels[ind]})
-        else:
-            cer = self._evaluations_cer(test_loader_labels, pred_labels).item()
-
-        return cer
+        # pred_labels = []
+        # for e in outputs:
+        #     batch_predictions_labels, _ = decode_batch_outputs(e, encoder)
+        #     pred_labels.extend(batch_predictions_labels)
+        #
+        # test_loader_labels = []
+        # test_loader_img = []
+        # for batch in test_loader:
+        #     images = batch["images"].to(self._device)
+        #     labels = batch["seq"]
+        #     seq_lens_gt = batch["seq_len"]
+        #
+        #     test_label_in_characters = encoder.inverse_transform(labels)
+        #     test_label_original = ''.join(test_label_in_characters)
+        #     last_ind = 0
+        #     for cur_len in seq_lens.detach().cpu().tolist():
+        #         test_loader_labels.append(test_label_original[max(0, last_ind): last_ind + cur_len])
+        #         last_ind = last_ind + cur_len
+        #
+        #     for ind, label in enumerate(labels):
+        #         label = label.type(torch.int).tolist()
+        #         test_label_in_characters = encoder.inverse_transform(label)
+        #         test_label_original = ''.join(test_label_in_characters)
+        #         test_loader_labels.append(test_label_original)
+        #         test_loader_img.append(images[ind].squeeze())
+        #
+        # if each_image:
+        #     cer = []
+        #     for ind in range(len(test_loader_labels)):
+        #         img = test_loader_img[ind]
+        #         cer.append({"img": img,
+        #                     "CER": self._evaluations_cer(test_loader_labels[ind],
+        #                                                  pred_labels[ind]).item(),
+        #                     "true_label": test_loader_labels[ind],
+        #                     "pred_label": pred_labels[ind]})
+        # else:
+        #     cer = self._evaluations_cer(test_loader_labels, pred_labels).item()
+        #
+        # return cer
 
     def _evaluations_cer(self, labels_true, labels_pred):
         """

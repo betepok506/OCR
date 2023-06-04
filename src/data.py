@@ -87,7 +87,7 @@ def create_loaders(paths_to_images: list,
     return train_loader, test_loader
 
 
-def extract_data(path_to_file: str):
+def extract_data(path_to_file: str, blank_token="<BLANK>"):
     """
     Функция для чтения файла аннотации и преобразования данных в формат датасета.
     Для кодирования меток используется `LabelEncoder`
@@ -103,7 +103,7 @@ def extract_data(path_to_file: str):
         Массив путей до изображений, массив закодированных меток, кодировщик меток
     """
 
-    annotations = pd.read_csv(path_to_file).sample(1000)
+    annotations = pd.read_csv(path_to_file)
     paths_to_images = annotations.iloc[:, 0].tolist()
     targets_orig = annotations.iloc[:, 1]
 
@@ -127,21 +127,27 @@ def extract_data(path_to_file: str):
         for c in clist:
             targets_flat.add(c)
 
-    UNK, BLANK = "<UNK>", "<BLANK>"
-    targets_flat = [UNK, BLANK] + sorted(list(targets_flat))
-    label_encoder = preprocessing.LabelEncoder()
-    label_encoder.fit(targets_flat)
-    token2ind = {token: label_encoder.transform([token])[0] for token in targets_flat}
+    targets_flat = [blank_token] + sorted(list(targets_flat))
+    # label_encoder = preprocessing.LabelEncoder()
+    # label_encoder.fit(targets_flat)
+    token2ind = {target: ind for ind, target in enumerate(targets_flat)}
+    ind2token = {ind: target for ind, target in enumerate(targets_flat)}
+    targets_enc = [[token2ind[token] for token in list_token] for list_token in targets]
+
+    # token2ind = {token: label_encoder.transform([token])[0] for token in targets_flat}
     # token2ind = {}
     # for token in targets_flat:
     #     token2ind[token] = label_encoder.transform([token])[0]
-    targets_enc = [label_encoder.transform(x) for x in targets]
+    # targets_enc = [label_encoder.transform(x) for x in targets]
     # targets_enc = as_matrix(targets, label_encoder, blank_token=BLANK)
 
     # targets_enc = [token2ind[x] for x in targets]
     # targets_enc = np.array(targets_enc)
 
-    return paths_to_images, targets_enc, label_encoder, label_encoder.transform([BLANK])[0], len(token2ind)
+    return paths_to_images, targets_enc, \
+           token2ind, ind2token, \
+           blank_token, token2ind[blank_token], len(token2ind)
+    # return paths_to_images, targets_enc, label_encoder, label_encoder.transform([BLANK])[0], len(token2ind)
     # return paths_to_images, targets_enc
 
 
