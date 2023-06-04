@@ -9,7 +9,7 @@ import numpy as np
 
 
 class CNN_GRU(nn.Module):
-    def __init__(self):
+    def __init__(self, output_size):
         super(CNN_GRU, self).__init__()
         self.dropout_percentage = 0.5
         self.conv_layers = nn.Sequential(
@@ -26,9 +26,9 @@ class CNN_GRU(nn.Module):
             nn.Dropout(p=self.dropout_percentage),
         )
 
-        self.linear_1 = nn.Linear(832, 128)
-        self.lstm = nn.GRU(128, 32, bidirectional=True, batch_first=True)
-        self.linear_2 = nn.Linear(64, 20)
+        self.linear_1 = nn.Linear(832, 536)
+        self.lstm = nn.GRU(536, 64, bidirectional=True, batch_first=True)
+        self.linear_2 = nn.Linear(128, output_size)
 
     def forward(self, x, targets):
         bs, _, _, _ = x.size()
@@ -40,20 +40,18 @@ class CNN_GRU(nn.Module):
         x, h = self.lstm(x)
         x = self.linear_2(x)
         x = x.permute(1, 0, 2)
-        if targets is not None:
-            log_probs = nn.functional.log_softmax(x, 2)
+        # if targets is not None:
+        #     log_probs = nn.functional.log_softmax(x, 2)
+        #
+        #     input_lengths = torch.full(size=(bs,), fill_value=log_probs.size(0),
+        #                                dtype=torch.int32)
+        #
+        #     target_lengths = torch.full(size=(bs,), fill_value=targets.size(1),
+        #                                 dtype=torch.int32)
+        #
+        #     return x, loss
 
-            input_lengths = torch.full(size=(bs,), fill_value=log_probs.size(0),
-                                       dtype=torch.int32)
-
-            target_lengths = torch.full(size=(bs,), fill_value=targets.size(1),
-                                        dtype=torch.int32)
-
-            loss = nn.CTCLoss(blank=19,zero_infinity=True)(log_probs, targets, input_lengths, target_lengths)
-
-            return x, loss
-
-        return x, None
+        return x
 
 
 class OCR:
@@ -61,12 +59,14 @@ class OCR:
     Класс содержит реализация модели для распознования изображений с капчей
     """
 
-    def __init__(self):
-        self.model = CNN_GRU()
+    def __init__(self, blank, num_classes):
+        self.model = CNN_GRU(num_classes + 1)
         self._device = "cpu"
         self._epoch = 0
         self._eval_loss = float("inf")
         self._optimizer = torch.optim.Adam(self.model.parameters(), lr=3E-4)
+        # self._criterion = nn.CTCLoss(blank=blank - 1, zero_infinity=True)
+        self._criterion = nn.CTCLoss()
         self._path_save_checkpoint = "./model/checkpoints/"
 
     def train(self,
@@ -123,12 +123,20 @@ class OCR:
                         pred_labels.extend(batch_predictions_labels)
 
                     test_loader_labels = []
-                    for images, labels in test_loader:
-                        for e in labels:
-                            e = e.type(torch.int).tolist()
-                            test_label_in_characters = encoder.inverse_transform(e)
-                            test_label_original = ''.join(test_label_in_characters)
-                            test_loader_labels.append(test_label_original)
+                    for baths in test_loader:
+                        labels = baths["seq"]
+                        seq_lens = baths["seq_len"]
+                        test_label_in_characters = encoder.inverse_transform(labels)
+                        test_label_original = ''.join(test_label_in_characters)
+                        last_ind = 0
+                        for cur_len in seq_lens.detach().cpu().tolist():
+                            test_loader_labels.append(test_label_original[max(0, last_ind): last_ind + cur_len])
+                            last_ind = last_ind + cur_len
+                        # for e in labels:
+                        #     e = e.type(torch.int).tolist()
+                        #     test_label_in_characters = encoder.inverse_transform(e)
+                        #     test_label_original = ''.join(test_label_in_characters)
+                        #     test_loader_labels.append(test_label_original)
 
                     index = np.random.choice(len(test_loader_labels), 5, replace=False)
                     examples = list(zip([test_loader_labels[ind] for ind in index],
@@ -161,12 +169,27 @@ class OCR:
         """
         self.model.train()
         final_loss = 0
-        for images, texts in train_loader:
+        for batchs in train_loader:
             self._optimizer.zero_grad()
-            images = images.to(self._device)
-            targets = texts.to(self._device)
-            output, loss = self.model(images, targets)
-            loss.requres_grad = True
+            images = batchs["images"].to(self._device)
+            targets = batchs["seq"]
+            seq_lens_gt = batchs["seq_len"]
+
+            output = self.model(images, targets).cpu()
+            log_probs = nn.functional.log_softmax(output, 2)
+            seq_lens_pred = torch.Tensor([output.size(0)] * output.size(1)).int()
+            loss = self._criterion(log_probs=log_probs,  # (T, N, C)
+                            targets=targets,  # N, S or sum(target_lengths)
+                            input_lengths=seq_lens_pred,  # N
+                            target_lengths=seq_lens_gt)  # N
+            # input_lengths = torch.full(size=(output.shape[1],), fill_value=log_probs.size(0),
+            #                            dtype=torch.int32)
+            #
+            # target_lengths = torch.full(size=(output.shape[1],), fill_value=targets.size(1),
+            #                             dtype=torch.int32)
+            #
+            # loss = self._criterion(log_probs, targets, input_lengths, target_lengths)
+            # loss.requres_grad = True
             loss.backward()
             self._optimizer.step()
             final_loss += loss.item()
@@ -194,11 +217,29 @@ class OCR:
         final_loss = 0
         outputs = []
         with torch.no_grad():
-            for images, texts in test_loader:
-                images = images.to(self._device)
-                targets = texts.to(self._device)
-                batch_outputs, loss = self.model(images, targets)
-                loss.requres_grad = True
+            for batchs in test_loader:
+                images = batchs["images"].to(self._device)
+                targets = batchs["seq"]
+                seq_lens_gt = batchs["seq_len"]
+                # images = images.to(self._device)
+                # targets = texts.to(self._device)
+                batch_outputs = self.model(images, targets)
+                log_probs = nn.functional.log_softmax(batch_outputs, 2)
+
+                seq_lens_pred = torch.Tensor([batch_outputs.size(0)] * batch_outputs.size(1)).int()
+                loss = self._criterion(log_probs=log_probs,  # (T, N, C)
+                                       targets=targets,  # N, S or sum(target_lengths)
+                                       input_lengths=seq_lens_pred,  # N
+                                       target_lengths=seq_lens_gt)  # N
+
+                # input_lengths = torch.full(size=(batch_outputs.shape[1],), fill_value=log_probs.size(0),
+                #                            dtype=torch.int32)
+                #
+                # target_lengths = torch.full(size=(batch_outputs.shape[1],), fill_value=targets.size(1),
+                #                             dtype=torch.int32)
+                #
+                # loss = self._criterion(log_probs, targets, input_lengths, target_lengths)
+                # loss.requires_grad = True
                 final_loss += loss.item()
 
                 outputs.append(batch_outputs.detach())
@@ -243,7 +284,7 @@ class OCR:
             for images, texts in test_loader:
                 images = images.to(self._device)
                 targets = texts.to(self._device)
-                batch_outputs, loss = self.model(images, targets)
+                batch_outputs = self.model(images, targets)
                 outputs.append(batch_outputs.detach())
 
         pred_labels = []

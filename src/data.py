@@ -35,12 +35,13 @@ class CaptchaDataset(Dataset):
         image = io.imread(img_name)
 
         target = self.targets[idx]
-        tensorized_target = torch.tensor(target, dtype=torch.float)
+        tensorized_target = torch.tensor(target, dtype=torch.int)
+        # tensorized_target = target
 
         if self.transform:
             image = self.transform(image)
 
-        return image, tensorized_target
+        return dict(image=image, seqs=tensorized_target)
 
 
 def create_loaders(paths_to_images: list,
@@ -78,15 +79,12 @@ def create_loaders(paths_to_images: list,
     train_dataset = CaptchaDataset(train_img, train_targets, transforms=transform)
     test_dataset = CaptchaDataset(test_img, test_targets, transforms=transform)
 
-    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-                                               # collate_fn=train_loader_collate)
-    test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True,
+                                               collate_fn=collate_fn)
+    test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=batch_size, shuffle=False,
+                                              collate_fn=collate_fn)
 
     return train_loader, test_loader
-
-
-# def train_loader_collate(image, tensorized_target):
-#     print(9)
 
 
 def extract_data(path_to_file: str):
@@ -129,24 +127,50 @@ def extract_data(path_to_file: str):
         for c in clist:
             targets_flat.add(c)
 
-    UNK, PAD = "UNK", "PAD"
-    targets_flat = [UNK, PAD] + sorted(list(targets_flat))
+    UNK, BLANK = "<UNK>", "<BLANK>"
+    targets_flat = [UNK, BLANK] + sorted(list(targets_flat))
     label_encoder = preprocessing.LabelEncoder()
     label_encoder.fit(targets_flat)
     token2ind = {token: label_encoder.transform([token])[0] for token in targets_flat}
     # token2ind = {}
     # for token in targets_flat:
     #     token2ind[token] = label_encoder.transform([token])[0]
-    # targets_enc = [label_encoder.transform(x) for x in targets]
-    targets_enc = as_matrix(targets, label_encoder, pad_token=PAD)
+    targets_enc = [label_encoder.transform(x) for x in targets]
+    # targets_enc = as_matrix(targets, label_encoder, blank_token=BLANK)
+
     # targets_enc = [token2ind[x] for x in targets]
     # targets_enc = np.array(targets_enc)
 
-    return paths_to_images, targets_enc, label_encoder
+    return paths_to_images, targets_enc, label_encoder, label_encoder.transform([BLANK])[0], len(token2ind)
     # return paths_to_images, targets_enc
 
 
-def as_matrix(sequences, encoder, max_len=None, pad_token="PAD"):
+def collate_fn(batch):
+    """Function for torch.utils.data.Dataloader for batch collecting.
+
+    Args:
+        - batch: List of dataset __getitem__ return values (dicts).
+
+    Returns:
+        Dict with same keys but values are either torch.Tensors of batched images or sequences or so.
+    """
+
+    images, seqs, seq_lens = [], [], []
+    # images, seqs, seq_lens, texts = [], [], [], []
+    for item in batch:
+        images.append(item["image"])
+
+        seq_lens.append(len(item["seqs"]))
+        seqs.extend(item["seqs"])
+
+    images = torch.stack(images)
+    seqs = torch.Tensor(seqs).int()
+    seq_lens = torch.Tensor(seq_lens).int()
+    batch = {"images": images, "seq": seqs, "seq_len": seq_lens}
+    return batch
+
+
+def as_matrix(sequences, encoder, max_len=None, blank_token="<BLANK>"):
     """ Convert a list of tokens into a matrix with padding """
     if isinstance(sequences[0], str):
         sequences = list(map(str.split, sequences))
@@ -154,7 +178,7 @@ def as_matrix(sequences, encoder, max_len=None, pad_token="PAD"):
 
     max_len = min(max(map(len, sequences)), max_len or float('inf'))
 
-    matrix = np.full((len(sequences), max_len), np.int32(encoder.transform([pad_token])[0]))
+    matrix = np.full((len(sequences), max_len), np.int32(encoder.transform([blank_token])[0]))
     for i, seq in enumerate(sequences):
         row_ix = [encoder.transform([word])[0] for word in seq[:max_len]]
         matrix[i, :len(row_ix)] = row_ix

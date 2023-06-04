@@ -1,17 +1,17 @@
 import torch
 import argparse
 from src.model import OCR
-from src.data import extract_data, create_loaders, create_annotations, fix_annotations
+from src.data import extract_data, create_loaders, create_annotations, fix_annotations, collate_fn
 import torchvision.transforms as transforms
 
 
 def train_pipeline(args):
     # image_file_paths, labels_encoded, LabelEncoder = extract_data(args.path_to_annotations)
-    image_file_paths, labels_encoded, LabelEncoder = extract_data(args.path_to_annotations)
+    image_file_paths, labels_encoded, LabelEncoder, blank, num_classes = extract_data(args.path_to_annotations)
     transform = transforms.Compose([
         transforms.ToPILImage(),
         transforms.Grayscale(num_output_channels=1),
-        transforms.Resize((50,200)),
+        transforms.Resize((50,400)),
         transforms.ToTensor()
     ])
 
@@ -24,7 +24,7 @@ def train_pipeline(args):
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     print(f'Current device {device}')
 
-    model = OCR()
+    model = OCR(blank, num_classes)
     model.to(device)
     if args.load:
         print("Loading model")
@@ -39,11 +39,11 @@ def train_pipeline(args):
 
 def get_args():
     parser = argparse.ArgumentParser(description='Train the OCR on images and target text')
-    parser.add_argument('--epochs', '-e', metavar='E', type=int, default=50, help='Number of epochs')
+    parser.add_argument('--epochs', '-e', metavar='E', type=int, default=10000, help='Number of epochs')
     parser.add_argument('--path_to_data', type=str, default="./data/train/train", help='Path to folder with images')
     parser.add_argument('--path_to_annotations', type=str, default="./data/train_labels.csv",
                         help='Path to annotations')
-    parser.add_argument('--batch-size', '-b', dest='batch_size', metavar='B', type=int, default=32, help='Batch size')
+    parser.add_argument('--batch-size', '-b', dest='batch_size', metavar='B', type=int, default=128, help='Batch size')
     parser.add_argument('--load', '-f', type=str, default=False,
                         help='Load model from a .pth file')
 
