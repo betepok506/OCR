@@ -11,8 +11,8 @@ def train_pipeline(args):
         args.path_to_annotations)
     transform = transforms.Compose([
         transforms.ToPILImage(),
-        transforms.Grayscale(num_output_channels=1),
-        transforms.Resize((50, 200)),
+        # transforms.Grayscale(num_output_channels=1),
+        transforms.Resize((64, 224)),
         transforms.ToTensor()
     ])
 
@@ -21,8 +21,8 @@ def train_pipeline(args):
                                                transform,
                                                args.batch_size,
                                                test_size=0.2)
-
-    device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+    test_loader = train_loader
+    device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
     print(f'Current device {device}')
 
     model = OCR(blank_token=blank_token, blank_ind=blank_ind, ind2token=ind2token,
@@ -41,10 +41,10 @@ def train_pipeline(args):
 def get_args():
     parser = argparse.ArgumentParser(description='Train the OCR on images and target text')
     parser.add_argument('--epochs', '-e', metavar='E', type=int, default=10000, help='Number of epochs')
-    parser.add_argument('--path_to_data', type=str, default="./data/sample", help='Path to folder with images')
+    parser.add_argument('--path_to_data', type=str, default="./data/train/train", help='Path to folder with images')
     parser.add_argument('--path_to_annotations', type=str, default="./data/list_images.csv",
                         help='Path to annotations')
-    parser.add_argument('--batch-size', '-b', dest='batch_size', metavar='B', type=int, default=128, help='Batch size')
+    parser.add_argument('--batch-size', '-b', dest='batch_size', metavar='B', type=int, default=8, help='Batch size')
     parser.add_argument('--load', '-f', type=str, default=False, # "./model/checkpoints/Epoch_129_loss_-0.11890.pt"
                         help='Load model from a .pth file')
 
@@ -55,5 +55,5 @@ if __name__ == "__main__":
     args = get_args()
     # create_annotations(args.path_to_data, args.path_to_annotations)
     # fix_annotations(args.path_to_annotations, args.path_to_data, "./data/train/annotations.csv")
-    # args.path_to_annotations = "./data/train/annotations.csv"
+    args.path_to_annotations = "./data/train/annotations.csv"
     train_pipeline(args)

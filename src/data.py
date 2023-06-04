@@ -6,6 +6,7 @@ from sklearn import preprocessing
 from sklearn.model_selection import train_test_split
 import torchvision.transforms as transforms
 import numpy as np
+import cv2
 import pandas as pd
 import os
 
@@ -32,8 +33,14 @@ class CaptchaDataset(Dataset):
             idx = idx.tolist()
 
         img_name = self.paths_to_images[idx]
+        # img_name = "./data/train/train/87.jpg"
         image = io.imread(img_name)
-
+        if image.shape[2] == 4:
+            image = image[:,:,:3]
+        # #
+        # cv2.imshow("test",image)
+        # cv2.waitKey()
+        # cv2.destroyAllWindows()
         target = self.targets[idx]
         tensorized_target = torch.tensor(target, dtype=torch.int)
         # tensorized_target = target
@@ -103,7 +110,7 @@ def extract_data(path_to_file: str, blank_token="<BLANK>"):
         Массив путей до изображений, массив закодированных меток, кодировщик меток
     """
 
-    annotations = pd.read_csv(path_to_file)
+    annotations = pd.read_csv(path_to_file).sample(128)
     paths_to_images = annotations.iloc[:, 0].tolist()
     targets_orig = annotations.iloc[:, 1]
 
