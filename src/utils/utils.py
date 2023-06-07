@@ -78,6 +78,7 @@ def decode_batch_outputs(batch_outputs, ind2token, blank_ind, blank_token):
 
     Returns
     ------------
+
     """
     predictions_ctc, predictions_labels = [], []
 
