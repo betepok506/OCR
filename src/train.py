@@ -4,7 +4,7 @@ import torch
 import logging
 import argparse
 from src.model.model import OCR
-from src.data.data import extract_data, create_loaders
+from src.data.data import extract_data, create_loaders, fix_annotations
 import torchvision.transforms as transforms
 import json
 import datetime
@@ -17,6 +17,10 @@ logger = logging.getLogger()
 
 @hydra.main(version_base=None, config_path='../configs', config_name='train_config')
 def train_pipeline(params: TrainingPipelineParams):
+    if params.create_annotations_file:
+        logger.info("Correction of the annotation file")
+        fix_annotations(params.path_to_annotations, params.path_to_data, params.path_to_annotations)
+
     logger.info("Loading data...")
     image_file_paths, labels_encoded, token2ind, ind2token, blank_token, blank_ind, num_classes = extract_data(
         params.path_to_annotations)

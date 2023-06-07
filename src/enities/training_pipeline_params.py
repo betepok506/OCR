@@ -7,6 +7,7 @@ from typing import Tuple
 @dataclass()
 class TrainingPipelineParams:
     model_name: str
+    create_annotations_file: bool
     num_epochs: int
     is_load: bool
     path_to_load: str
