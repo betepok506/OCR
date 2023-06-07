@@ -6,3 +6,6 @@ torchmetrics
 matplotlib
 pandas
 seaborn
+natsort
+hydra-core
+marshmallow_dataclass

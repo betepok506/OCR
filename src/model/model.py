@@ -1,9 +1,11 @@
 import os
+
+import pandas as pd
 from torch import nn
 import torch
 from torchmetrics import CharErrorRate
 from torch.utils.data import DataLoader
-from src.utils import decode_batch_outputs, encoding, split_text
+from src.utils.utils import decode_batch_outputs, encoding, split_text
 from sklearn.preprocessing import LabelEncoder
 import numpy as np
 from tqdm import tqdm
@@ -177,16 +179,21 @@ class OCR:
     Класс содержит реализация модели для распознования изображений с капчей
     """
 
-    def __init__(self, blank_token, blank_ind, ind2token, token2ind, num_classes):
-        # self.model = CNN_GRU(num_classes)
-        self.model = CRNN(alphabet=[k for k in token2ind.keys()], cnn_output_len=num_classes)
+    def __init__(self, model_name, blank_token, blank_ind, ind2token, token2ind, num_classes, output_dir=None):
+        if model_name == "custom":
+            self.model = CNN_GRU(num_classes)
+        elif model_name in ["resnet18", "resnet34", "resnet50", "resnet101"]:
+            self.model = CRNN(alphabet=[k for k in token2ind.keys()], cnn_output_len=num_classes)
+        else:
+            raise NotImplementedError
+
         self._device = "cpu"
         self._epoch = 0
         self._eval_loss = float("inf")
         self._optimizer = torch.optim.Adam(self.model.parameters(), lr=3E-4)
         # self._criterion = nn.CTCLoss(blank=blank - 1, zero_infinity=True)
         self._criterion = nn.CTCLoss(zero_infinity=True)
-        self._path_save_checkpoint = "./model/checkpoints/"
+        self._path_save_checkpoint = output_dir
 
         self.blank_token = blank_token
         self.blank_ind = blank_ind
@@ -199,7 +206,7 @@ class OCR:
               num_epochs=500,
               save_checkpoint=True,
               visualize_learning=True,
-              visualize_each=5):
+              visualize_each=1):
         """
         Функция для обучения модели
 
@@ -240,33 +247,6 @@ class OCR:
                     f"Epoch: {self._epoch} Train loss: {train_loss} CER: {train_cer} Examples: {train_examples[:min(len(train_examples), 5)]}"
                     f"\n\tValidation: loss: {eval_loss} CER: {eval_cer} Examples: {eval_examples[:min(len(eval_examples), 5)]}")
 
-                # if visualize_learning:
-                #     all_predictions, pred_labels = [], []
-                #     for e in outputs:
-                #         batch_predictions_labels, batch_predictions = decode_batch_outputs(e, self.ind2token,
-                #                                                                            self.blank_ind,
-                #                                                                            self.blank_token)
-                #         all_predictions.extend(batch_predictions)
-                #         pred_labels.extend(batch_predictions_labels)
-                #
-                #     test_loader_labels = []
-                #     for batch in test_loader:
-                #         labels = batch["seq"]
-                #         seq_lens = batch["seq_len"]
-                #         test_label_in_characters = encoding(labels, self.token2ind)
-                #         test_label_original = ''.join(test_label_in_characters)
-                #         last_ind = 0
-                #         for cur_len in seq_lens.detach().cpu().tolist():
-                #             test_loader_labels.append(test_label_original[max(0, last_ind): last_ind + cur_len])
-                #             last_ind = last_ind + cur_len
-                #
-                #     index = np.random.choice(len(test_loader_labels), 5, replace=False)
-                #     examples = list(zip([test_loader_labels[ind] for ind in index],
-                #                         [all_predictions[ind] for ind in index]))
-                #     print(examples)
-                #     cer = self._evaluations_cer(test_loader_labels, pred_labels).item()
-                #     print(f"CER: {cer}")
-
             if save_checkpoint and self._eval_loss > eval_loss:
                 self._eval_loss = eval_loss
                 self.save(os.path.join(self._path_save_checkpoint,
@@ -292,7 +272,7 @@ class OCR:
         self.model.train()
         final_loss, cer = 0, 0
         result_learning = []
-        for batch in tqdm(train_loader, desc="Training..."):
+        for batch in tqdm(train_loader, desc="Training...", ncols=160):
             self._optimizer.zero_grad()
             images = batch["images"].to(self._device)
             targets = batch["seq"]
@@ -314,14 +294,7 @@ class OCR:
                                    targets=targets,  # N, S or sum(target_lengths)
                                    input_lengths=seq_lens_pred,  # N
                                    target_lengths=seq_lens_gt)  # N
-            # input_lengths = torch.full(size=(output.shape[1],), fill_value=log_probs.size(0),
-            #                            dtype=torch.int32)
-            #
-            # target_lengths = torch.full(size=(output.shape[1],), fill_value=targets.size(1),
-            #                             dtype=torch.int32)
-            #
-            # loss = self._criterion(log_probs, targets, input_lengths, target_lengths)
-            # loss.requres_grad = True
+
             self._optimizer.zero_grad()
             loss.backward()
             self._optimizer.step()
@@ -351,7 +324,7 @@ class OCR:
         index = np.random.choice(len(test_loader), 1, replace=False)
         result_learning = []
         with torch.no_grad():
-            for batch in tqdm(test_loader, desc="Validating..."):
+            for batch in tqdm(test_loader, desc="Validating...", ncols=160):
                 images = batch["images"].to(self._device)
                 targets = batch["seq"]
                 seq_lens_gt = batch["seq_len"]
@@ -425,61 +398,7 @@ class OCR:
                                                                    self.blank_token)
                 for text, predict in zip(texts, batch_predictions_labels):
                     print((text, predict))
-                # map(print, [(text, predict) for text, predict in zip(decoded_text, batch_predictions_labels)])
-                # outputs.append(batch_outputs.detach())
-        # if each_image:
-        #     cer = []
-        #     for ind in range(len(test_loader_labels)):
-        #         img = test_loader_img[ind]
-        #         cer.append({"img": img,
-        #                     "CER": self._evaluations_cer(test_loader_labels[ind],
-        #                                                  pred_labels[ind]).item(),
-        #                     "true_label": test_loader_labels[ind],
-        #                     "pred_label": pred_labels[ind]})
-        # else:
-        #     cer = self._evaluations_cer(test_loader_labels, pred_labels).item()
-        #
-        # return cer
 
-        # pred_labels = []
-        # for e in outputs:
-        #     batch_predictions_labels, _ = decode_batch_outputs(e, encoder)
-        #     pred_labels.extend(batch_predictions_labels)
-        #
-        # test_loader_labels = []
-        # test_loader_img = []
-        # for batch in test_loader:
-        #     images = batch["images"].to(self._device)
-        #     labels = batch["seq"]
-        #     seq_lens_gt = batch["seq_len"]
-        #
-        #     test_label_in_characters = encoder.inverse_transform(labels)
-        #     test_label_original = ''.join(test_label_in_characters)
-        #     last_ind = 0
-        #     for cur_len in seq_lens.detach().cpu().tolist():
-        #         test_loader_labels.append(test_label_original[max(0, last_ind): last_ind + cur_len])
-        #         last_ind = last_ind + cur_len
-        #
-        #     for ind, label in enumerate(labels):
-        #         label = label.type(torch.int).tolist()
-        #         test_label_in_characters = encoder.inverse_transform(label)
-        #         test_label_original = ''.join(test_label_in_characters)
-        #         test_loader_labels.append(test_label_original)
-        #         test_loader_img.append(images[ind].squeeze())
-        #
-        # if each_image:
-        #     cer = []
-        #     for ind in range(len(test_loader_labels)):
-        #         img = test_loader_img[ind]
-        #         cer.append({"img": img,
-        #                     "CER": self._evaluations_cer(test_loader_labels[ind],
-        #                                                  pred_labels[ind]).item(),
-        #                     "true_label": test_loader_labels[ind],
-        #                     "pred_label": pred_labels[ind]})
-        # else:
-        #     cer = self._evaluations_cer(test_loader_labels, pred_labels).item()
-        #
-        # return cer
 
     def _evaluations_cer(self, labels_true, labels_pred):
         """
@@ -499,6 +418,22 @@ class OCR:
         """
         cer = CharErrorRate()
         return cer(labels_true, labels_pred)
+
+    def predict(self, loader: DataLoader, path_to_save: str):
+        self.model.eval()
+
+        images_name, predict_labels = [], []
+        with torch.no_grad():
+            for batch in tqdm(loader, total=len(loader), desc="Predicting ", ncols=160):
+                images = batch["images"].to(self._device)
+                images_name.extend([os.path.basename(name) for name in batch["img_name"]])
+                batch_outputs = self.model(images)
+                batch_predictions_labels, _ = decode_batch_outputs(batch_outputs, self.ind2token, self.blank_ind,
+                                                                   self.blank_token)
+                predict_labels.extend(batch_predictions_labels)
+
+        df = pd.DataFrame(data={"Id": images_name, "Predicted": predict_labels})
+        df.to_csv(path_to_save, index=False, encoding='utf8')
 
     def error_calculation_each_image(self, test_loader):
         pass
