@@ -20,7 +20,6 @@ logger = logging.getLogger()
 def predict_pipeline(params: PredictingPipelineParams):
     if params.create_annotations:
         create_list_files(params.path_to_data, params.path_to_annotations)
-        # create_list_files("./data/test/test", params.path_to_annotations)
         logger.info(f"Annotations created!")
 
     annotations = pd.read_csv(params.path_to_annotations)
@@ -59,26 +58,5 @@ def predict_pipeline(params: PredictingPipelineParams):
     model.predict(predict_loader, params.output_dir)
 
 
-# def get_args():
-#     parser = argparse.ArgumentParser(description='Train the OCR on images and target text')
-#     parser.add_argument('--epochs', '-e', metavar='E', type=int, default=10000, help='Number of epochs')
-#     parser.add_argument('--path_to_data', type=str, default="./data/train/train", help='Path to folder with images')
-#     parser.add_argument('--path_to_annotations', type=str, default="./data/list_images.csv",
-#                         help='Path to annotations')
-#     parser.add_argument('--batch-size', '-b', dest='batch_size', metavar='B', type=int, default=768, help='Batch size')
-#     parser.add_argument('--load', '-f', type=str,
-#                         default="./model/05-06-2023-10-33/checkpoints/Epoch_28_loss_1.87021.pt",
-#                         help='Load model from a .pth file')
-#     parser.add_argument('--output-dir', type=str, default="./model/05-06-2023-10-33",
-#                         help='Load model from a .pth file')
-#     parser.add_argument('--path-save', type=str, default="./results/result.csv", help='Load model from a .pth file')
-#
-#     return parser.parse_args()
-
-
 if __name__ == "__main__":
-    # args = get_args()
-    # create_annotations(args.path_to_data, args.path_to_annotations)
-    # fix_annotations(args.path_to_annotations, args.path_to_data, "./data/train/annotations.csv")
-    # args.path_to_annotations = "./data/test_list.csv"
     predict_pipeline()
