@@ -1,0 +1,9 @@
+model_name: "resnet50"
+path_to_model: "./models/07-06-2023-17-25/checkpoints/Epoch_32_loss_1.09756.pt"
+path_to_info_for_model: "./models/07-06-2023-17-25"
+path_to_data: "./datasets/test/test"
+path_to_annotations: "./datasets/test_list.csv"
+create_annotations: True
+img_size: [64, 224]
+batch_size: 768
+output_dir: "./results/new_result.csv"

@@ -5,6 +5,7 @@ import yaml
 
 @dataclass()
 class PredictingPipelineParams:
+    model_name: str
     path_to_model: str
     path_to_info_for_model: str
     path_to_data: str

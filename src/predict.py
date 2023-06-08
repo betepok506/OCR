@@ -7,7 +7,13 @@ import pandas as pd
 import json
 import os
 import hydra
+import logging
+
 from src.enities.prediction_pipeline_params import PredictingPipelineParams
+from src.logger_config.config import LOGGING_CONFIG
+
+logging.config.dictConfig(LOGGING_CONFIG)
+logger = logging.getLogger()
 
 
 @hydra.main(version_base=None, config_path='../configs', config_name='predict_config')
@@ -15,7 +21,7 @@ def predict_pipeline(params: PredictingPipelineParams):
     if params.create_annotations:
         create_list_files(params.path_to_data, params.path_to_annotations)
         # create_list_files("./data/test/test", params.path_to_annotations)
-        print(f"Annotations created!")
+        logger.info(f"Annotations created!")
 
     annotations = pd.read_csv(params.path_to_annotations)
     image_file_paths = annotations.iloc[:, 0].tolist()
@@ -38,14 +44,16 @@ def predict_pipeline(params: PredictingPipelineParams):
                                     batch_size=params.batch_size)
 
     device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
-    print(f'Current device {device}')
+    logger.info(f'Current device {device}')
+    logger.info(f"Model name: {params.model_name}")
 
-    model = OCR(blank_token=trainer_params["blank_token"], blank_ind=trainer_params["blank_ind"],
+    model = OCR(model_name=params.model_name, blank_token=trainer_params["blank_token"],
+                blank_ind=trainer_params["blank_ind"],
                 ind2token=trainer_params["ind2token"],
                 token2ind=trainer_params["token2ind"], num_classes=trainer_params["num_classes"])
     model.to(device)
 
-    print("Loading model")
+    logger.info(f"Loading model... Path to model: {params.path_to_model}")
     model.load(params.path_to_model)
 
     model.predict(predict_loader, params.output_dir)
