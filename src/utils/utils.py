@@ -1,3 +1,6 @@
+import os
+import cv2 as cv
+from tqdm import tqdm
 import torch
 
 
@@ -89,3 +92,50 @@ def decode_batch_outputs(batch_outputs, ind2token, blank_ind, blank_token):
         predictions_labels.append(prediction_label)
 
     return predictions_labels, predictions_ctc
+
+
+def mean_std_for_loader(loader: torch.utils.data.DataLoader):
+    mean = torch.zeros(3)
+    std = torch.zeros(3)
+    for batch in tqdm(loader, total=len(loader)):
+        images = batch["images"]
+        for d in range(3):
+            mean[d] += images[:, d, :, :].mean()
+            std[d] += images[:, d, :, :].std()
+
+    mean.div_(len(loader))
+    std.div_(len(loader))
+    return list(mean.numpy()), list(std.numpy())
+
+
+def dataset_statistics(path_to_data: str):
+    stat = {
+        "inv_images": 0,
+        "height_inv_images": 0,
+        "width_inv_images": 0,
+        "total_images": 0,
+        "height_total_images": 0,
+        "width_total_images": 0,
+        "normal_images": 0,
+        "height_normal_images": 0,
+        "width_normal_images": 0,
+    }
+
+    for name_file in tqdm(os.listdir(path_to_data)):
+        img = cv.imread(os.path.join(path_to_data, name_file))
+        h, w, _ = img.shape
+        if h > w * 1.3:
+            type_img = "inv"
+        else:
+            type_img = "normal"
+
+        for type_ in ["total", type_img]:
+            stat[f"{type_}_images"] += 1
+            stat[f"height_{type_}_images"] += h
+            stat[f"width_{type_}_images"] += w
+
+    for type_ in ["total", "inv", "normal"]:
+        stat[f"height_{type_}_images"] /= stat[f"{type_}_images"]
+        stat[f"width_{type_}_images"] /= stat[f"{type_}_images"]
+
+    return stat

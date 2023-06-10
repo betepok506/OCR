@@ -17,6 +17,7 @@ logger = logging.getLogger()
 
 @hydra.main(version_base=None, config_path='../configs', config_name='train_config')
 def train_pipeline(params: TrainingPipelineParams):
+    #TODO: сДЕЛАТЬ В DATALOADER переворот вертикальных изображений
     if params.create_annotations_file:
         logger.info("Correction of the annotation file")
         fix_annotations(params.path_to_annotations, params.path_to_data, params.path_to_annotations)

@@ -2,13 +2,15 @@ import torch
 from torch.utils.data import Dataset
 import matplotlib.pyplot as plt
 from skimage import io
+from skimage.transform import rotate
 from sklearn import preprocessing
 from sklearn.model_selection import train_test_split
 import torchvision.transforms as transforms
 import numpy as np
-# import cv2
+import cv2 as cv
 import pandas as pd
 import os
+from tqdm import tqdm
 from natsort import natsorted
 
 
@@ -39,6 +41,11 @@ class CaptchaDataset(Dataset):
         image = io.imread(img_name)
         if image.shape[2] == 4:
             image = image[:, :, :3]
+
+        if image.shape[0] > image.shape[1] * 1.3:
+            image = rotate(image, -90, resize=True, preserve_range=True).astype(np.uint8)
+            # io.imshow(image)
+            # plt.show()
 
         if self.transform:
             image = self.transform(image)
@@ -124,20 +131,8 @@ def extract_data(path_to_file: str, blank_token="<BLANK>"):
     targets_orig = annotations.iloc[:, 1]
 
     labels = targets_orig.tolist()
-    # targets = []
-    #
-    # for ind, x in enumerate(labels):
-    #     t = []
-    #     try:
-    #         for c in x:
-    #             t.append(c)
-    #     except:
-    #         print(f"{ind=} {x=}")
-    #         continue
-    #
-    #     targets.append(t)
     targets = [[c for c in x] for x in labels]
-    # targets_flat = [c for clist in targets for c in clist]
+
     targets_flat = set()
     for clist in targets:
         for c in clist:
@@ -149,11 +144,9 @@ def extract_data(path_to_file: str, blank_token="<BLANK>"):
     ind2token = {ind: target for ind, target in enumerate(targets_flat)}
     targets_enc = [[token2ind[token] for token in list_token] for list_token in targets]
 
-
     return paths_to_images, targets_enc, \
         token2ind, ind2token, \
         blank_token, token2ind[blank_token], len(token2ind)
-
 
 
 def collate_fn(batch):
@@ -245,6 +238,37 @@ def fix_annotations(path_to_annotations: str, path_to_dataset: str, path_to_save
                                                                                                 header=False,
                                                                                                 index=False)
 
+
+def augmentation_data(path_to_annotation: str, path_to_new_data: str, path_to_new_annotation: str):
+    os.makedirs(path_to_new_data, exist_ok=True)
+    annotations = pd.read_csv(path_to_annotation)
+    paths_to_images = annotations.iloc[:, 0].tolist()
+    targets_orig = annotations.iloc[:, 1]
+    new_paths_to_images = []
+    new_target = []
+    cur_num = 1
+
+    for ind, name_file in tqdm(enumerate(paths_to_images)):
+        img = cv.imread(name_file)
+        h, w, _ = img.shape
+        if h < w * 1.3:
+            path_to_img = os.path.join(path_to_new_data, f"{cur_num}.jpg")
+            cv.imwrite(path_to_img, img)
+            new_paths_to_images.append(path_to_img)
+            new_target.append(targets_orig[ind])
+
+            cur_num += 1
+            path_to_img = os.path.join(path_to_new_data, f"{cur_num}.jpg")
+            center = (w / 2, h / 2)
+            M = cv.getRotationMatrix2D(center, 180, 1.0)
+            rotated = cv.warpAffine(img, M, (w, h))
+            cv.imwrite(os.path.join(path_to_new_data, f"{cur_num}.jpg"), rotated)
+            new_paths_to_images.append(path_to_img)
+            new_target.append(targets_orig[ind][::-1])
+
+            cur_num += 1
+
+    pd.DataFrame({"Id": new_paths_to_images, "Target": new_target}).to_csv(path_to_new_annotation, index=False)
 
 def create_list_files(path_to_images: str, path_to_save: str):
     list_files = []

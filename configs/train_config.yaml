@@ -1,11 +1,11 @@
 model_name: "resnet50"
 create_annotations_file: True
 num_epochs: 100
-is_load: True
+is_load: False
 path_to_load: "./model/05-06-2023-10-33/checkpoints/Epoch_28_loss_1.87021.pt"
-path_to_info_for_model: "./model/05-06-2023-10-33/"
-path_to_data: "./datasets/train/train"
-path_to_annotations: "./datasets/train/annotations.csv"
+path_to_info_for_model: "./model/"
+path_to_data: "./datasets/train/aug_train"
+path_to_annotations: "./datasets/train/aug_annotations.csv"
 batch_size: 768
 output_dir: models
 img_size: [64, 224]
