@@ -14,12 +14,6 @@ from tqdm import tqdm
 from natsort import natsorted
 
 
-def show_landmarks(image):
-    """Show image with landmarks"""
-    plt.imshow(image)
-    plt.pause(0.001)  # pause a bit so that plots are updated
-
-
 class CaptchaDataset(Dataset):
     """Класс содержит собственную реализацию Dataset, унаследованную от `torch.utils.data.Dataset`"""
 
@@ -37,15 +31,13 @@ class CaptchaDataset(Dataset):
             idx = idx.tolist()
 
         img_name = self.paths_to_images[idx]
-        # img_name = "./data/train/train/87.jpg"
+
         image = io.imread(img_name)
         if image.shape[2] == 4:
             image = image[:, :, :3]
 
         if image.shape[0] > image.shape[1] * 1.3:
             image = rotate(image, -90, resize=True, preserve_range=True).astype(np.uint8)
-            # io.imshow(image)
-            # plt.show()
 
         if self.transform:
             image = self.transform(image)
@@ -77,6 +69,8 @@ def create_loaders(paths_to_images: list,
         Массив, содержащий закодированные метки
     transform: `transforms`
         Преобразования, которые необходимо применить к данным
+    split: `bool`
+        Флаг, означающий нужно ли разбивать данные на test/train
     batch_size: `int`
         Размер батча
     test_size: `float`
@@ -118,6 +112,8 @@ def extract_data(path_to_file: str, blank_token="<BLANK>"):
     ------------
     path_to_file: `str`
         Путь до файла с аннотацией
+    blank_token: `str`
+        Токен для заполнения для нужной длины
 
     Returns
     ------------
@@ -150,15 +146,6 @@ def extract_data(path_to_file: str, blank_token="<BLANK>"):
 
 
 def collate_fn(batch):
-    """Function for torch.utils.data.Dataloader for batch collecting.
-
-    Args:
-        - batch: List of dataset __getitem__ return values (dicts).
-
-    Returns:
-        Dict with same keys but values are either torch.Tensors of batched images or sequences or so.
-    """
-
     images, seqs, seq_lens, images_name = [], [], [], []
 
     for item in batch:
@@ -187,22 +174,6 @@ def collate_fn_predict(batch):
     return batch
 
 
-def as_matrix(sequences, encoder, max_len=None, blank_token="<BLANK>"):
-    """ Convert a list of tokens into a matrix with padding """
-    if isinstance(sequences[0], str):
-        sequences = list(map(str.split, sequences))
-    # sequences = [encoder.transform(x) for x in sequences]
-
-    max_len = min(max(map(len, sequences)), max_len or float('inf'))
-
-    matrix = np.full((len(sequences), max_len), np.int32(encoder.transform([blank_token])[0]))
-    for i, seq in enumerate(sequences):
-        row_ix = [encoder.transform([word])[0] for word in seq[:max_len]]
-        matrix[i, :len(row_ix)] = row_ix
-
-    return matrix
-
-
 def create_annotations(path_to_dataset: str, path_to_save: str):
     """
     Функция для создания файла аннотации
@@ -224,6 +195,18 @@ def create_annotations(path_to_dataset: str, path_to_save: str):
 
 
 def fix_annotations(path_to_annotations: str, path_to_dataset: str, path_to_save: str):
+    """
+    Функция производит отчистку пустых значений аннотации в датасете
+
+    Parameters
+    ------------
+    path_to_annotations:
+        Путь до файла с аннотациями
+    path_to_dataset:
+        Путь до папки с изображениями
+    path_to_save:
+        Путь по которому будет сохранен файл с аннотацией
+    """
     annotations = pd.read_csv(path_to_annotations)
     initial_length = len(annotations)
     annotations = annotations.dropna()
@@ -240,6 +223,19 @@ def fix_annotations(path_to_annotations: str, path_to_dataset: str, path_to_save
 
 
 def augmentation_data(path_to_annotation: str, path_to_new_data: str, path_to_new_annotation: str):
+    """
+    Функция для расширения набора данных путем переворачивания горизонтальных
+     картинок на 180 градусов и разворачиванием аннотации к ним
+
+     Parameters
+    ------------
+    path_to_annotation: `str`
+        Путь до файла с аннотациями
+    path_to_new_data: `str`
+        Путь до нового каталога с изображениями
+    path_to_new_annotation: `str`
+        Путь до нового файла с аннотациями
+    """
     os.makedirs(path_to_new_data, exist_ok=True)
     annotations = pd.read_csv(path_to_annotation)
     paths_to_images = annotations.iloc[:, 0].tolist()
@@ -270,7 +266,18 @@ def augmentation_data(path_to_annotation: str, path_to_new_data: str, path_to_ne
 
     pd.DataFrame({"Id": new_paths_to_images, "Target": new_target}).to_csv(path_to_new_annotation, index=False)
 
+
 def create_list_files(path_to_images: str, path_to_save: str):
+    """
+    Функция создает списко файлов в порядке увеличения их номеров
+
+    Parameters
+    ------------
+    path_to_images: `str`
+        Путь до папки с изображениями
+    path_to_save: `str`
+        Путь до файла со списком изображений
+    """
     list_files = []
     for name in natsorted(os.listdir(path_to_images)):
         list_files.append(os.path.join(path_to_images, name))

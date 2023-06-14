@@ -1,17 +1,22 @@
-# Распознование капчи 
+# Распознование текстов
 
-Данный репозиторий содержит модель CNN+GRU CTCLoss для распознования текста капчи
+Данный репозиторий содержит модель CNN+GRU/Resnet CTCLoss для распознования текста 
+контеста: https://www.kaggle.com/competitions/vk-made-ocr/overview
 
-Примеры капчи:
+Примеры текста:
 
-![](samples/2cg58.png)
+![](sample_img/1.jpg)
 
-![](samples/d22y5.png)
+![](sample_img/2.jpg)
 
-![](samples/2p2y8.png)
+![](sample_img/3.jpg)
 
-Отчет с описанием этапов и результатами обучения представлен в ноутбуке `notebooks/report.ipynb`
+![](sample_img/4.jpg)
+
+
 
 # Оценка
 
-Для оценки использовалась метрика Character Error Rate, значение которой на тестовой выборке составило `0.006` 
+Для оценки использовалась метрика Character Error Rate, 
+значение которой на тестовой выборке составило `3.87371`
+[Веса модели и конфигурационный файл](https://drive.google.com/file/d/1V9UHPZG71s1Mt_N3GNVuwCgwi5OwR_ZE/view?usp=drive_link)
