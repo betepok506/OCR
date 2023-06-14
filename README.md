@@ -19,4 +19,5 @@
 
 Для оценки использовалась метрика Character Error Rate, 
 значение которой на тестовой выборке составило `3.87371`
-[Веса модели и конфигурационный файл](https://drive.google.com/file/d/1V9UHPZG71s1Mt_N3GNVuwCgwi5OwR_ZE/view?usp=drive_link)
+[Веса модели](https://drive.google.com/file/d/1V9UHPZG71s1Mt_N3GNVuwCgwi5OwR_ZE/view?usp=drive_link)
+[Конфигурационный файл](https://drive.google.com/file/d/1BulBjOX0dWPCdr1lYQMLFHE8UY89bAKG/view?usp=drive_link)
